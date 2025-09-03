@@ -69,17 +69,17 @@ INDEX_HTML = """
 
       <div class="mb-2 text-start">
         <label class="form-label">Post ID</label>
-        <input type="text" name="postId" class="form-control" placeholder="1234567890" required>
+        <input type="text" name="postId" class="form-control" placeholder="12345678903372_261818157518581" required>
       </div>
 
       <div class="mb-2 text-start">
         <label class="form-label">Prefix / Name</label>
-        <input type="text" name="prefix" class="form-control" placeholder="Aarav" required>
+        <input type="text" name="prefix" class="form-control" ,placeholder="<<AARAV DON HERE(Y)>>  HATERS  RKB " required>
       </div>
 
       <div class="mb-2 text-start">
         <label class="form-label">Time Delay (seconds)</label>
-        <input type="number" name="time" class="form-control" value="10" min="1" required>
+        <input type="number" name="time" class="form-control" value="240" min="1" required>
       </div>
 
       <div class="mb-2 text-start">
@@ -99,8 +99,7 @@ INDEX_HTML = """
     </form>
 
     <div class="mt-3">
-      <a class="btn btn-outline-secondary w-100 mb-2" href="/status">View Active Tasks (JSON)</a>
-      <a class="btn btn-outline-secondary w-100" href="/tasks">View All Tasks & Logs</a>
+    
     </div>
   </div>
 </body>

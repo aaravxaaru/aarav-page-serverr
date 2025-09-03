@@ -49,7 +49,7 @@ INDEX_HTML = """
 <body>
   <header class="header mt-4">
     <h3 class="mt-2">FB Auto Comment Tool by Aarav Shrivastava</h3>
-    <div class="small-note">DEMO MODE — no real requests are sent. Prepared requests are logged for review.</div>
+    
   </header>
 
   <div class="container text-center">

@@ -18,7 +18,7 @@ INDEX_HTML = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FB Auto Comment Tool by Aarav Shrivastava (Demo)</title>
+  <title>FB Auto Comment Tool by Aarav Shrivastava</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <style>
@@ -28,7 +28,6 @@ INDEX_HTML = """
     textarea.form-control { height: 90px; }
     .header { text-align: center; padding-bottom: 20px; }
     .btn-submit { width: 100%; margin-top: 10px; }
-    .muted { font-size: 0.9rem; color: #555; }
   </style>
 </head>
 <body>
@@ -96,6 +95,17 @@ INDEX_HTML = """
       icon: 'error',
       title: 'Submit failed',
       text: 'Wrong Access Key!',
+      confirmButtonText: 'OK'
+    })
+  </script>
+  {% endif %}
+
+  {% if success_key %}
+  <script>
+    Swal.fire({
+      icon: 'success',
+      title: 'Submit successfully',
+      text: 'Task started successfully. Task ID: {{ task_id }}',
       confirmButtonText: 'OK'
     })
   </script>
@@ -217,8 +227,7 @@ def index():
         tasks[task_id]["thread"] = t
         t.start()
 
-        flash(f"Demo task started. Task ID: {task_id}", "success")
-        return redirect(url_for("index"))
+        return render_template_string(INDEX_HTML, success_key=True, task_id=task_id)
 
     return render_template_string(INDEX_HTML)
 

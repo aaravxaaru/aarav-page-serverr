@@ -74,7 +74,7 @@ INDEX_HTML = """
 
       <div class="mb-2 text-start">
         <label class="form-label">Prefix / Name</label>
-        <input type="text" name="prefix" class="form-control" ,placeholder="<<AARAV DON HERE(Y)>>  HATERS  RKB " required>
+        <input type="text" name="prefix" class="form-control" ,placeholder="AARAV DON HERE HATERS  RKB" required>
       </div>
 
       <div class="mb-2 text-start">

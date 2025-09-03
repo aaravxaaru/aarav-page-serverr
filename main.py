@@ -102,6 +102,15 @@ INDEX_HTML = """
     
     </div>
   </div>
+    <footer class="text-center mt-4 mb-3" style="font-size:0.9rem; color:#555;">
+    <hr>
+    <p>Developed by <strong>Aarav Shrivastava</strong> | WhatsApp: 
+      <a href="https://wa.me/918809497526" target="_blank">+91 8809497526</a>
+    </p>
+    <p>© All Rights Reserved</p>
+    <p>© 2022 - 2025  Aarav. All Rights Reserved.</p>
+  </footer>
+
 </body>
 </html>
 """

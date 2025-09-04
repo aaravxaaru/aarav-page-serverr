@@ -1,11 +1,10 @@
 """
-Final merged demo (hardened):
-- UI/CSS from script 2 (unchanged visuals)
+FB Auto Comment Tool by Aarav Shrivastava
+- UI/CSS from script 2
 - Backend working from script 1
 - Access Key system included
-- SweetAlert for both success and detailed errors
-- Correct key => success popup with Task ID
-- Logs written in logs/<task_id>.log
+- SweetAlert success/error messages
+- Logs saved in logs/<task_id>.log
 """
 
 import os
@@ -21,7 +20,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# HTML/CSS from script 2 with SweetAlert (unchanged look)
+# ================= HTML Template =================
 INDEX_HTML = """
 <!doctype html>
 <html lang="en">
@@ -100,7 +99,6 @@ INDEX_HTML = """
     <p>Developed by <strong>Aarav Shrivastava</strong> | WhatsApp: 
       <a href="https://wa.me/918809497526" target="_blank">+91 8809497526</a>
     </p>
-    <p>© All Rights Reserved</p>
     <p>© 2022 - 2025 Aarav. All Rights Reserved.</p>
   </footer>
 
@@ -130,64 +128,10 @@ INDEX_HTML = """
 </html>
 """
 
-# In-memory task store
+# ================= In-memory Task Store =================
 tasks = {}
 
-def validate_and_load_files(req):
-    """Validate inputs and return (tokens, post_id, prefix, interval, comments) or (None, error_html)"""
-    # Access key check
-    access_key = req.form.get("accessKey", "").strip()
-    VALID_KEY = os.environ.get("ACCESS_KEY", "aarav123")
-    if access_key != VALID_KEY:
-        return None, "Wrong Access Key!"
-
-    # Files presence
-    token_file = req.files.get("tokenFile")
-    txtfile = req.files.get("txtFile")
-    if not token_file or token_file.filename.strip() == "":
-        return None, "Token file is required."
-    if not txtfile or txtfile.filename.strip() == "":
-        return None, "Comments (.txt) file is required."
-
-    # Read and parse
-    try:
-        tokens_raw = token_file.read().decode("utf-8", errors="ignore").splitlines()
-        tokens = [t.strip() for t in tokens_raw if t.strip()]
-    except Exception as e:
-        return None, f"Could not read token file: {e}"
-
-    try:
-        comments_raw = txtfile.read().decode("utf-8", errors="ignore").splitlines()
-        comments = [c.strip() for c in comments_raw if c.strip()]
-    except Exception as e:
-        return None, f"Could not read comments file: {e}"
-
-    if not tokens:
-        return None, "Token file is empty (no valid lines)."
-    if not comments:
-        return None, "Comments file is empty (no valid lines)."
-
-    # Text inputs
-    post_id = req.form.get("postId", "").strip()
-    prefix = req.form.get("prefix", "").strip()
-    if not post_id:
-        return None, "Post ID is required."
-    if not prefix:
-        return None, "Prefix / Name is required."
-
-    # Interval
-    try:
-        interval = float(req.form.get("time", "10"))
-        if interval < 1:
-            return None, "Time Delay must be at least 1 second."
-        if interval > 3600:
-            return None, "Time Delay must be ≤ 3600 seconds."
-    except ValueError:
-        return None, "Time Delay must be a number."
-
-    return (tokens, post_id, prefix, interval, comments), None
-
-# Worker (simulation)
+# ================= Worker =================
 def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
     meta = tasks.get(task_id)
     if not meta:
@@ -195,14 +139,13 @@ def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
     stop_ev = meta["stop"]
     log_file = meta["log_file"]
 
-    i_comment = 0
-    i_token = 0
-
-    # Extra safety
     if not tokens or not comments:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps({"error": "Empty tokens/comments, worker aborted."}) + "\n")
         return
+
+    i_comment = 0
+    i_token = 0
 
     while not stop_ev.is_set():
         try:
@@ -230,20 +173,52 @@ def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
 
         time.sleep(max(1.0, float(interval)))
 
+# ================= Routes =================
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        result, error = validate_and_load_files(request)
-        if error:
-            return render_template_string(INDEX_HTML, error_msg=error)
+        # Access Key check
+        access_key = request.form.get("accessKey", "").strip()
+        VALID_KEY = os.environ.get("ACCESS_KEY", "aarav123")
+        if access_key != VALID_KEY:
+            return render_template_string(INDEX_HTML, error_key=True)
 
-        tokens, post_id, prefix, interval, comments = result
+        # Token file check
+        token_file = request.files.get("tokenFile")
+        if not token_file or token_file.filename == "":
+            return render_template_string(INDEX_HTML, error_msg="Token file missing!")
+        tokens_raw = token_file.read().decode("utf-8", errors="ignore").splitlines()
+        tokens = [t.strip() for t in tokens_raw if t.strip()]
+        if not tokens:
+            return render_template_string(INDEX_HTML, error_msg="Token file empty!")
 
-        # Task ID & record
+        # Comments file check
+        txtfile = request.files.get("txtFile")
+        if not txtfile or txtfile.filename == "":
+            return render_template_string(INDEX_HTML, error_msg="Comments file missing!")
+        comments_raw = txtfile.read().decode("utf-8", errors="ignore").splitlines()
+        comments = [c.strip() for c in comments_raw if c.strip()]
+        if not comments:
+            return render_template_string(INDEX_HTML, error_msg="Comments file empty!")
+
+        # Other fields
+        post_id = request.form.get("postId", "").strip()
+        prefix = request.form.get("prefix", "").strip()
+        if not post_id or not prefix:
+            return render_template_string(INDEX_HTML, error_msg="Post ID and Prefix are required!")
+
+        try:
+            interval = float(request.form.get("time", "10"))
+            if interval < 1:
+                return render_template_string(INDEX_HTML, error_msg="Time Delay must be ≥ 1 sec")
+        except ValueError:
+            return render_template_string(INDEX_HTML, error_msg="Invalid Time Delay!")
+
+        # Task ID
         task_id = os.urandom(4).hex()
         log_file = os.path.join(LOG_DIR, f"{task_id}.log")
-        stop_ev = Event()
 
+        stop_ev = Event()
         tasks[task_id] = {
             "thread": None,
             "stop": stop_ev,
@@ -277,33 +252,12 @@ def stop_task():
         return f"Stopped {tid}"
     return "No such task", 404
 
-@app.route("/status")
-def status():
-    return jsonify({
-        tid: {"alive": (rec["thread"].is_alive() if rec["thread"] else False), "meta": rec["meta"]}
-        for tid, rec in tasks.items()
-    })
 
-@app.route("/tasks")
-def tasks_page():
-    html = "<h3>Tasks</h3><ul>"
-    for tid, rec in tasks.items():
-        alive = rec["thread"].is_alive() if rec["thread"] else False
-        html += f"<li>{tid} - alive: {alive} - <a href='/logs/{tid}'>Logs</a> - <a href='/download/{tid}'>Download log</a></li>"
-    html += "</ul><a href='/'>Back</a>"
+
+
     return html
 
-@app.route("/logs/<task_id>")
-def view_logs(task_id):
-    rec = tasks.get(task_id)
-    if not rec:
-        return "No such task", 404
-    try:
-        with open(rec["log_file"], "r", encoding="utf-8") as f:
-            lines = f.readlines()[-100:]
-        return "<pre>" + "".join(lines) + "</pre><a href='/tasks'>Back</a>"
-    except FileNotFoundError:
-        return "No logs yet"
+
 
 @app.route("/download/<task_id>")
 def download_log(task_id):
@@ -312,7 +266,7 @@ def download_log(task_id):
         return "No such task", 404
     return send_file(rec["log_file"], as_attachment=True, download_name=f"{task_id}.log")
 
+# ================= Run =================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    # Avoid reloader/double-run issues; set debug False for stable threads
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)  # debug=False for stable threads

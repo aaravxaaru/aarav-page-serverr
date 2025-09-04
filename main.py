@@ -1,12 +1,3 @@
-"""
-FB Auto Comment Tool by Aarav Shrivastava
-- UI/CSS from script 2
-- Backend working from script 1
-- Access Key system included
-- SweetAlert success/error messages
-- Logs saved in logs/<task_id>.log
-"""
-
 import os
 import time
 import json

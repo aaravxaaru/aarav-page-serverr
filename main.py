@@ -79,10 +79,7 @@ INDEX_HTML = """
       <button class="btn btn-danger btn-submit mt-2" type="submit">Stop Task</button>
     </form>
 
-    <div class="mt-3 text-center">
-      <a class="btn btn-outline-secondary w-100" href="/status">View Status (JSON)</a>
-      <a class="btn btn-outline-secondary w-100 mt-2" href="/tasks">Tasks & Logs</a>
-    </div>
+
   </div>
 
   <footer class="text-center mt-4 mb-3" style="font-size:0.9rem; color:#555;">

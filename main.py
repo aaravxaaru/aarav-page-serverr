@@ -7,17 +7,15 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "devkey")
 
-# DB (simple SQLite)
+# Simple SQLite DB
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 db = SQLAlchemy(app)
 
-# Admin creds
+# Admin credentials
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin123")
 
-tasks, LOG_DIR = {}, "logs"
-os.makedirs(LOG_DIR, exist_ok=True)
-
+# User model
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True)
@@ -25,6 +23,11 @@ class User(db.Model):
     approved = db.Column(db.Boolean, default=False)
     def check(self, pwd): return check_password_hash(self.password_hash, pwd)
 
+# Tasks
+tasks, LOG_DIR = {}, "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# UI
 INDEX_HTML = """
 <!doctype html><html><body>
 <h3>FB Auto Comment Tool</h3>
@@ -44,14 +47,16 @@ INDEX_HTML = """
 </body></html>
 """
 
+# Worker
 def worker(tid,tokens,post,prefix,interval,comments):
     stop=tasks[tid]["stop"]; log=tasks[tid]["log"]
     i=j=0
     while not stop.is_set():
         data={"time":datetime.datetime.utcnow().isoformat(),"msg":f"{prefix} {comments[i]}"}
-        with open(log,"a") as f:f.write(json.dumps(data)+"\n")
+        with open(log,"a") as f: f.write(json.dumps(data)+"\n")
         i=(i+1)%len(comments); j=(j+1)%len(tokens); time.sleep(interval)
 
+# Auth helpers
 def login_required(f):
     def w(*a,**k):
         if not session.get("uid"): return redirect("/login")
@@ -60,6 +65,7 @@ def login_required(f):
         return f(*a,**k)
     w.__name__=f.__name__; return w
 
+# Routes
 @app.route("/",methods=["GET","POST"])
 @login_required
 def index():
@@ -73,9 +79,12 @@ def index():
         return f"Task started {tid}"
     return render_template_string(INDEX_HTML)
 
-@app.route("/stop",methods=["POST"]); @login_required
-def stop(): tid=request.form["taskId"]; 
-if tid in tasks: tasks[tid]["stop"].set(); return f"Stopped {tid}"; return redirect("/")
+@app.route("/stop",methods=["POST"])
+@login_required
+def stop():
+    tid=request.form["taskId"]
+    if tid in tasks: tasks[tid]["stop"].set(); return f"Stopped {tid}"
+    return redirect("/")
 
 @app.route("/register",methods=["GET","POST"])
 def register():
@@ -96,13 +105,14 @@ def login():
         return "Invalid or not approved"
     return "<form method=post><input name=u><input type=password name=p><button>Login</button></form>"
 
-@app.route("/logout"); def logout(): session.clear(); return redirect("/login")
+@app.route("/logout")
+def logout(): session.clear(); return redirect("/login")
 
-@app.route("/admin",methods=["GET"])
+@app.route("/admin")
 def admin():
     if not session.get("admin"): return redirect("/login")
-    pending=User.query.filter_by(approved=False).all()
-    return "".join(f"<p>{x.username} <a href='/approve/{x.id}'>Approve</a></p>" for x in pending)
+    pend=User.query.filter_by(approved=False).all()
+    return "".join(f"<p>{x.username} <a href='/approve/{x.id}'>Approve</a></p>" for x in pend)
 
 @app.route("/approve/<int:uid>")
 def approve(uid):

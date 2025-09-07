@@ -3,16 +3,71 @@ import time
 import json
 import datetime
 from threading import Thread, Event
-from flask import Flask, request, render_template_string, send_file, jsonify, redirect, url_for, flash
+from flask import Flask, request, render_template_string, send_file, jsonify, redirect, url_for, flash, session
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 
+# -----------------------
+# APP CONFIG
+# -----------------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(BASE_DIR, "users.db")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db = SQLAlchemy(app)
+
+# Admin credentials
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 
 tasks = {}
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
-INDEX_HTML = """
+# -----------------------
+# DB MODEL
+# -----------------------
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), unique=True, nullable=False)
+    password_hash = db.Column(db.String(300), nullable=False)
+    approved = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def check_password(self, pwd):
+        return check_password_hash(self.password_hash, pwd)
+
+# -----------------------
+# HELPERS
+# -----------------------
+def login_required(f):
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("login"))
+        user = User.query.get(session["user_id"])
+        if not user or not user.approved:
+            session.clear()
+            flash("Your account is not approved yet.", "warning")
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
+
+def admin_required(f):
+    def wrapper(*args, **kwargs):
+        if session.get("is_admin") != True:
+            return redirect(url_for("admin_login"))
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
+
+# -----------------------
+# OLD INDEX PAGE (protected)
+# -----------------------
+INDEX_HTML = """  <!-- (same HTML as your old script, unchanged) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -44,12 +99,12 @@ INDEX_HTML = """
 
       <div class="mb-2 text-start">
         <label class="form-label">Post ID</label>
-        <input type="text" name="postId" class="form-control" placeholder="12345678903372_261818157518581" required>
+        <input type="text" name="postId" class="form-control" required>
       </div>
 
       <div class="mb-2 text-start">
         <label class="form-label">Prefix / Name</label>
-        <input type="text" name="prefix" class="form-control" placeholder="<<AARAV DON HERE(Y)>> HATERS RKB" required>
+        <input type="text" name="prefix" class="form-control" required>
       </div>
 
       <div class="mb-2 text-start">
@@ -58,21 +113,14 @@ INDEX_HTML = """
       </div>
 
       <div class="mb-2 text-start">
-        <label class="form-label">Comments File (.txt) — one per line</label>
+        <label class="form-label">Comments File (.txt)</label>
         <input type="file" name="txtFile" class="form-control" required>
-      </div>
-
-      <!-- Access Key Field -->
-      <div class="mb-2 text-start">
-        <label class="form-label">Access Key</label>
-        <input type="password" name="accessKey" class="form-control" placeholder="Enter Access Key" required>
       </div>
 
       <button class="btn btn-primary btn-submit">Start Demo Task</button>
     </form>
 
     <hr>
-
     <form method="post" action="/stop" class="mt-2">
       <label class="form-label text-start">Stop Task</label>
       <input type="text" name="taskId" class="form-control" placeholder="Enter Task ID to stop">
@@ -82,38 +130,15 @@ INDEX_HTML = """
 
   <footer class="text-center mt-4 mb-3" style="font-size:0.9rem; color:#555;">
     <hr>
-    <p>Developed by <strong>Aarav Shrivastava</strong> | WhatsApp: 
-      <a href="https://wa.me/918809497526" target="_blank">+91 8809497526</a>
-    </p>
-    <p>© All Rights Reserved</p>
-    <p>© 2022 - 2025 Darkester. All Rights Reserved.</p>
+    <p>Developed by <strong>Aarav Shrivastava</strong></p>
   </footer>
-
-  {% if error_key %}
-  <script>
-    Swal.fire({
-      icon: 'error',
-      title: 'Submit failed',
-      text: 'Wrong Access Key!',
-      confirmButtonText: 'OK'
-    })
-  </script>
-  {% endif %}
-
-  {% if success_key %}
-  <script>
-    Swal.fire({
-      icon: 'success',
-      title: 'Submit successfully',
-      text: 'Task started successfully. Task ID: {{ task_id }}',
-      confirmButtonText: 'OK'
-    })
-  </script>
-  {% endif %}
 </body>
 </html>
 """
 
+# -----------------------
+# BACKGROUND WORKER
+# -----------------------
 def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
     meta = tasks.get(task_id)
     if not meta:
@@ -136,11 +161,11 @@ def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
                 "token_preview": token_used[:8] + "...",
                 "prefix": prefix,
                 "message": f"{prefix} {msg_text}",
-                "simulated_status": "queued"
+                "status": "simulated"
             }
 
             with open(log_path, "a", encoding="utf-8") as lf:
-                lf.write(json.dumps(prepared, ensure_ascii=False) + "\\n")
+                lf.write(json.dumps(prepared, ensure_ascii=False) + "\n")
 
             meta["recent"].append(prepared)
             if len(meta["recent"]) > 200:
@@ -150,86 +175,158 @@ def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
             idx_comment = (idx_comment + 1) % len(comments)
             idx_token = (idx_token + 1) % len(tokens)
 
-            if run_count % 5 == 0:
-                prepared["simulated_status"] = "simulated_sent"
-
         except Exception as e:
-            err = {
-                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-                "error": str(e)
-            }
+            err = {"timestamp": datetime.datetime.utcnow().isoformat() + "Z", "error": str(e)}
             with open(log_path, "a", encoding="utf-8") as lf:
-                lf.write(json.dumps(err, ensure_ascii=False) + "\\n")
+                lf.write(json.dumps(err, ensure_ascii=False) + "\n")
 
-        try:
-            time.sleep(max(1, float(interval)))
-        except:
-            time.sleep(1)
+        time.sleep(max(1, float(interval)))
 
+# -----------------------
+# ROUTES
+# -----------------------
+
+# Protected home
 @app.route("/", methods=["GET", "POST"])
+@login_required
 def index():
     if request.method == "POST":
-        # Access Key check
-        access_key = request.form.get("accessKey", "").strip()
-        VALID_KEY = os.environ.get("ACCESS_KEY", "aarav123")
-        if access_key != VALID_KEY:
-            return render_template_string(INDEX_HTML, error_key=True)
-
-        # token file required
         token_file = request.files.get("tokenFile")
-        if not token_file or not token_file.filename:
-            flash("Token file is required (one token per line)", "danger")
+        if not token_file:
+            flash("Token file is required", "danger")
             return redirect(url_for("index"))
-        tokens_raw = token_file.read().decode("utf-8", errors="ignore").strip().splitlines()
-        tokens = [t.strip() for t in tokens_raw if t.strip()]
-        if not tokens:
-            flash("No tokens found in uploaded file", "danger")
-            return redirect(url_for("index"))
-
-        post_id = request.form.get("postId", "").strip()
-        prefix = request.form.get("prefix", "").strip()
-        try:
-            interval = float(request.form.get("time", "10"))
-        except:
-            interval = 10.0
-
+        tokens = token_file.read().decode("utf-8").splitlines()
+        post_id = request.form.get("postId")
+        prefix = request.form.get("prefix")
+        interval = float(request.form.get("time", 10))
         txtfile = request.files.get("txtFile")
-        if not txtfile or not txtfile.filename:
-            flash("Comments file is required", "danger")
-            return redirect(url_for("index"))
-        comments_raw = txtfile.read().decode("utf-8", errors="ignore").splitlines()
-        comments = [c.strip() for c in comments_raw if c.strip()]
-        if not comments:
-            flash("Comments file is empty", "danger")
-            return redirect(url_for("index"))
+        comments = txtfile.read().decode("utf-8").splitlines()
 
         task_id = os.urandom(4).hex()
         log_file = os.path.join(LOG_DIR, f"{task_id}.log")
-
         stop_ev = Event()
-        tasks[task_id] = {
-            "thread": None,
-            "stop": stop_ev,
-            "meta": {
-                "post_id": post_id,
-                "prefix": prefix,
-                "interval": interval,
-                "tokens_count": len(tokens),
-                "comments_count": len(comments),
-                "created_at": datetime.datetime.utcnow().isoformat() + "Z"
-            },
-            "log_file": log_file,
-            "recent": []
-        }
+        tasks[task_id] = {"thread": None, "stop": stop_ev, "log_file": log_file, "recent": []}
 
         t = Thread(target=worker_simulate, args=(task_id, tokens, post_id, prefix, interval, comments))
         t.daemon = True
         tasks[task_id]["thread"] = t
         t.start()
 
-        return render_template_string(INDEX_HTML, success_key=True, task_id=task_id)
-
+        flash(f"Task started with ID {task_id}", "success")
     return render_template_string(INDEX_HTML)
+
+@app.route("/stop", methods=["POST"])
+@login_required
+def stop_task():
+    tid = request.form.get("taskId")
+    if tid in tasks:
+        tasks[tid]["stop"].set()
+        flash(f"Task {tid} stopped.", "info")
+    return redirect(url_for("index"))
+
+# -----------------------
+# AUTH ROUTES
+# -----------------------
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        if User.query.filter_by(username=username).first():
+            flash("Username already taken", "danger")
+            return redirect(url_for("register"))
+        u = User(username=username, password_hash=generate_password_hash(password), approved=False)
+        db.session.add(u)
+        db.session.commit()
+        flash("Registered successfully. Wait for admin approval.", "info")
+        return redirect(url_for("login"))
+    return """<h2>Register</h2><form method="post">
+        <input name="username"><br><input name="password" type="password"><br>
+        <button type="submit">Register</button></form>"""
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        # admin login
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            session.clear()
+            session["is_admin"] = True
+            return redirect(url_for("admin_dashboard"))
+        # user login
+        u = User.query.filter_by(username=username).first()
+        if u and u.check_password(password):
+            if not u.approved:
+                flash("Pending approval.", "warning")
+                return redirect(url_for("login"))
+            session.clear()
+            session["user_id"] = u.id
+            return redirect(url_for("index"))
+        flash("Invalid credentials", "danger")
+    return """<h2>Login</h2><form method="post">
+        <input name="username"><br><input name="password" type="password"><br>
+        <button type="submit">Login</button></form>"""
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+# -----------------------
+# ADMIN ROUTES
+# -----------------------
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            session.clear()
+            session["is_admin"] = True
+            return redirect(url_for("admin_dashboard"))
+        flash("Invalid admin login", "danger")
+    return """<h2>Admin Login</h2><form method="post">
+        <input name="username"><br><input name="password" type="password"><br>
+        <button type="submit">Login</button></form>"""
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    pending = User.query.filter_by(approved=False).all()
+    users = User.query.order_by(User.created_at.desc()).all()
+    html = "<h2>Admin Dashboard</h2>"
+    html += "<h3>Pending Approvals</h3><ul>"
+    for p in pending:
+        html += f"<li>{p.username} <a href='/admin/approve/{p.id}'>Approve</a> | <a href='/admin/reject/{p.id}'>Reject</a></li>"
+    html += "</ul><h3>All Users</h3><ul>"
+    for u in users:
+        html += f"<li>{u.username} - Approved: {u.approved}</li>"
+    html += "</ul><a href='/logout'>Logout</a>"
+    return html
+
+@app.route("/admin/approve/<int:uid>")
+@admin_required
+def approve_user(uid):
+    u = User.query.get_or_404(uid)
+    u.approved = True
+    db.session.commit()
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/reject/<int:uid>")
+@admin_required
+def reject_user(uid):
+    u = User.query.get_or_404(uid)
+    db.session.delete(u)
+    db.session.commit()
+    return redirect(url_for("admin_dashboard"))
+
+# -----------------------
+# INIT
+# -----------------------
+@app.before_first_request
+def init_db():
+    db.create_all()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

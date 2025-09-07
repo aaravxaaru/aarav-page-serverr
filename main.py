@@ -13,9 +13,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DB_PATH = os.path.join(BASE_DIR, "users.db")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + DB_PATH
+# DATABASE URL (Render gives DATABASE_URL for PostgreSQL)
+db_url = os.environ.get("DATABASE_URL", "sqlite:///users.db")
+
+# Fix for PostgreSQL (Render provides "postgres://" but SQLAlchemy needs "postgresql://")
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
@@ -41,7 +46,7 @@ class User(db.Model):
         return check_password_hash(self.password_hash, pwd)
 
 # -----------------------
-# HTML (Unchanged Old UI)
+# HTML (same old UI)
 # -----------------------
 INDEX_HTML = """
 <!doctype html>
@@ -74,7 +79,7 @@ INDEX_HTML = """
 """
 
 # -----------------------
-# WORKER
+# BACKGROUND WORKER
 # -----------------------
 def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
     meta = tasks.get(task_id)
@@ -106,7 +111,7 @@ def worker_simulate(task_id, tokens, post_id, prefix, interval, comments):
         time.sleep(max(1, float(interval)))
 
 # -----------------------
-# AUTH HELPERS
+# HELPERS
 # -----------------------
 def login_required(f):
     def wrapper(*args, **kwargs):
